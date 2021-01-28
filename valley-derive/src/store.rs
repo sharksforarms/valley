@@ -70,6 +70,7 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
     let mut field_decls = Vec::new();
     let mut field_news = Vec::new();
     let mut field_inserts = Vec::new();
+    let mut lookup_functions = Vec::new();
 
     for (i, field) in fields.fields.iter().enumerate() {
         let field_name = gen_field_ident(field.ident.as_ref(), i, false);
@@ -90,6 +91,14 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
         field_inserts.push(quote! {
             let entry = self.#index_name.entry(#field_name).or_insert(Vec::new());
             entry.push(rc.clone());
+        });
+
+
+        let lookup_fn = Ident::new(&format!("lookup_{}", &field_name), Span::call_site());
+        lookup_functions.push(quote! {
+            fn #lookup_fn(&mut self, item: &#field_type) -> &Vec<std::rc::Rc<#input_ident #ty_generics>> {
+                self.#index_name.get(item).unwrap()
+            }
         });
 
         field_idents.push(field_name);
@@ -119,6 +128,9 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
                     }
                 }
             }
+
+            #(#lookup_functions)*
+
         }
     });
 
