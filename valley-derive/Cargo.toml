@@ -1,0 +1,17 @@
+[package]
+name = "valley-derive"
+version = "0.1.0"
+authors = ["Emmanuel Thompson <eet6646@gmail.com>"]
+edition = "2018"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1.0"
+syn = "1.0"
+# extra-traits gives us Debug
+# syn = {version = "1.0", features = ["extra-traits"]}
+proc-macro2 = "1.0"
+darling = "0.12"
+
