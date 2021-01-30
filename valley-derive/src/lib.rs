@@ -13,10 +13,13 @@ pub(crate) struct ValleyReceiver {
 }
 
 #[derive(Debug, FromField)]
-#[darling(attributes())]
+#[darling(attributes(valley))]
 struct FieldReceiver {
     ident: Option<syn::Ident>,
     ty: syn::Type,
+
+    #[darling(default)]
+    index: bool,
 }
 
 #[derive(Debug, FromVariant)]
@@ -27,7 +30,7 @@ struct VariantReceiver {
     discriminant: Option<syn::Expr>,
 }
 
-#[proc_macro_derive(ValleyStore, attributes())]
+#[proc_macro_derive(ValleyStore, attributes(valley))]
 pub fn proc_valley_store(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = match syn::parse(input) {
         Ok(input) => input,

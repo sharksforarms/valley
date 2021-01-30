@@ -33,6 +33,12 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
 
     for (i, field) in fields.fields.iter().enumerate() {
         let field_name = gen_field_ident(field.ident.as_ref(), i, false);
+        field_idents.push(field_name.clone());
+
+        if !field.index {
+            continue;
+        }
+
         let index_name = gen_field_ident(field.ident.as_ref(), i, true);
         let field_type = &field.ty;
         let index_type: Type = syn::parse2(quote! {
@@ -52,15 +58,12 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
             entry.push(rc.clone());
         });
 
-
         let lookup_fn = Ident::new(&format!("lookup_{}", &field_name), Span::call_site());
         lookup_functions.push(quote! {
             fn #lookup_fn(&mut self, item: &#field_type) -> &Vec<std::rc::Rc<#input_ident #ty_generics>> {
                 self.#index_name.get(item).unwrap()
             }
         });
-
-        field_idents.push(field_name);
     }
 
     let named = fields.style.is_struct();

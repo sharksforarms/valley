@@ -5,7 +5,9 @@ struct Test<T>
 where
     T: Eq + std::hash::Hash + Clone,
 {
+    #[valley(index)]
     a: T,
+    #[valley(index)]
     b: u16,
     c: String,
 }
