@@ -33,37 +33,60 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
 
     for (i, field) in fields.fields.iter().enumerate() {
         let field_name = gen_field_ident(field.ident.as_ref(), i, false);
+        let field_type = &field.ty;
+
         field_idents.push(field_name.clone());
 
-        if !field.index {
-            continue;
-        }
-
-        let index_name = gen_field_ident(field.ident.as_ref(), i, true);
-        let field_type = &field.ty;
-        let index_type: Type = syn::parse2(quote! {
-            std::collections::HashMap<#field_type, Vec<std::rc::Rc<#input_ident #ty_generics>>>
-        })?;
-
-        field_decls.push(quote! {
-            #index_name: #index_type,
-        });
-
-        field_news.push(quote! {
-            #index_name: Default::default(),
-        });
-
-        field_inserts.push(quote! {
-            let entry = self.#index_name.entry(#field_name).or_insert(Vec::new());
-            entry.push(rc.clone());
-        });
-
         let lookup_fn = Ident::new(&format!("lookup_{}", &field_name), Span::call_site());
-        lookup_functions.push(quote! {
-            fn #lookup_fn(&mut self, item: &#field_type) -> &Vec<std::rc::Rc<#input_ident #ty_generics>> {
-                self.#index_name.get(item).unwrap()
-            }
-        });
+        if field.index {
+            let index_name = gen_field_ident(field.ident.as_ref(), i, true);
+            let index_type: Type = syn::parse2(quote! {
+                std::collections::HashMap<#field_type, Vec<std::rc::Rc<#input_ident #ty_generics>>>
+            })?;
+
+            field_decls.push(quote! {
+                #index_name: #index_type,
+            });
+
+            field_news.push(quote! {
+                #index_name: Default::default(),
+            });
+
+            field_inserts.push(quote! {
+                let entry = self.#index_name.entry(#field_name).or_insert(Vec::new());
+                entry.push(rc.clone());
+            });
+
+            lookup_functions.push(quote! {
+                fn #lookup_fn(&mut self, item: &#field_type) -> &Vec<std::rc::Rc<#input_ident #ty_generics>> {
+                    self.#index_name.get(item).unwrap()
+                }
+            });
+        } else {
+            // create a phantom marker for non-index fields
+            //
+            // We do this so that we don't get errors if field_type
+            // is generic over T or a 'lifetime and throws
+            // errors about not being used. Maybe there's a better way?
+            let phantom_field = Ident::new(
+                &format!("_phantom_{}", field_name.to_string()),
+                Span::call_site(),
+            );
+
+            field_decls.push(quote! {
+                #phantom_field: std::marker::PhantomData<#field_type>,
+            });
+
+            field_news.push(quote! {
+                #phantom_field: Default::default(),
+            });
+
+            lookup_functions.push(quote! {
+                fn #lookup_fn(&mut self, item: &#field_type) -> &Vec<std::rc::Rc<#input_ident #ty_generics>> {
+                    todo!()
+                }
+            });
+        }
     }
 
     let named = fields.style.is_struct();
@@ -71,7 +94,7 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
 
     tokens.extend(quote! {
         #[derive(Debug)]
-        struct #name #ty_generics #where_clause {
+        struct #name #impl_generics #where_clause {
             #(#field_decls)*
         }
 
@@ -96,6 +119,7 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
         }
     });
 
+    // println!("{:#?}", tokens.to_string());
     Ok(tokens)
 }
 
