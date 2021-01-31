@@ -25,11 +25,15 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
 
     let fields = &input.data.as_ref().take_struct().unwrap();
 
+    // if no index attr is specified, create index for all fields
+    let create_all_index = fields.iter().all(|f| !f.index);
+
     let field_idents = fields
         .iter()
         .enumerate()
         .map(|(i, f)| gen_field_ident(f.ident.as_ref(), i, false))
         .collect::<Vec<_>>();
+
     let named = fields.style.is_struct();
     let destructured = gen_struct_destruction(named, &input.ident, &field_idents);
 
@@ -41,7 +45,7 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
 
     // generate indices
     for (i, field) in fields.fields.iter().enumerate() {
-        if field.index {
+        if create_all_index || field.index {
             let field_ident = gen_field_ident(field.ident.as_ref(), i, false);
             let field_type = &field.ty;
 
@@ -80,7 +84,7 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
     // is generic over T or a 'lifetime and throws
     // errors about not being used. Maybe there's a better way?
     for (i, field) in fields.fields.iter().enumerate() {
-        if !field.index {
+        if !create_all_index && !field.index {
             let field_ident = gen_field_ident(field.ident.as_ref(), i, false);
             let field_type = &field.ty;
             let lookup_fn = Ident::new(&format!("lookup_{}", &field_ident), Span::call_site());
@@ -98,9 +102,8 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
                 #phantom_field: Default::default(),
             });
 
-            let some_index = index_names.as_slice().first().unwrap();
-
             // for lookup of non-index: pick some index and do iterative search
+            let some_index = index_names.as_slice().first().unwrap();
             lookup_functions.push(quote! {
                 fn #lookup_fn(&mut self, item: &#field_type) -> Vec<std::rc::Rc<#input_ident #ty_generics>> {
                     self.#some_index.values()
