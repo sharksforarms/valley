@@ -25,20 +25,27 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
 
     let fields = &input.data.as_ref().take_struct().unwrap();
 
-    let mut field_idents = Vec::new();
+    let field_idents = fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| gen_field_ident(f.ident.as_ref(), i, false))
+        .collect::<Vec<_>>();
+    let named = fields.style.is_struct();
+    let destructured = gen_struct_destruction(named, &input.ident, &field_idents);
+
     let mut field_decls = Vec::new();
     let mut field_news = Vec::new();
     let mut field_inserts = Vec::new();
     let mut lookup_functions = Vec::new();
+    let mut index_names = Vec::new();
 
+    // generate indices
     for (i, field) in fields.fields.iter().enumerate() {
-        let field_name = gen_field_ident(field.ident.as_ref(), i, false);
-        let field_type = &field.ty;
-
-        field_idents.push(field_name.clone());
-
-        let lookup_fn = Ident::new(&format!("lookup_{}", &field_name), Span::call_site());
         if field.index {
+            let field_ident = gen_field_ident(field.ident.as_ref(), i, false);
+            let field_type = &field.ty;
+
+            let lookup_fn = Ident::new(&format!("lookup_{}", &field_ident), Span::call_site());
             let index_name = gen_field_ident(field.ident.as_ref(), i, true);
             let index_type: Type = syn::parse2(quote! {
                 std::collections::HashMap<#field_type, Vec<std::rc::Rc<#input_ident #ty_generics>>>
@@ -53,7 +60,7 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
             });
 
             field_inserts.push(quote! {
-                let entry = self.#index_name.entry(#field_name).or_insert(Vec::new());
+                let entry = self.#index_name.entry(#field_ident).or_insert(Vec::new());
                 entry.push(rc.clone());
             });
 
@@ -62,14 +69,24 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
                     self.#index_name.get(item).unwrap()
                 }
             });
-        } else {
-            // create a phantom marker for non-index fields
-            //
-            // We do this so that we don't get errors if field_type
-            // is generic over T or a 'lifetime and throws
-            // errors about not being used. Maybe there's a better way?
+
+            index_names.push(index_name);
+        }
+    }
+
+    // create a phantom marker for non-index fields w/ non-indexed lookup
+    //
+    // We do this so that we don't get errors if field_type
+    // is generic over T or a 'lifetime and throws
+    // errors about not being used. Maybe there's a better way?
+    for (i, field) in fields.fields.iter().enumerate() {
+        if !field.index {
+            let field_ident = gen_field_ident(field.ident.as_ref(), i, false);
+            let field_type = &field.ty;
+            let lookup_fn = Ident::new(&format!("lookup_{}", &field_ident), Span::call_site());
+
             let phantom_field = Ident::new(
-                &format!("_phantom_{}", field_name.to_string()),
+                &format!("_phantom_{}", field_ident.to_string()),
                 Span::call_site(),
             );
 
@@ -81,16 +98,24 @@ fn emit_struct(input: &ValleyReceiver) -> Result<TokenStream, syn::Error> {
                 #phantom_field: Default::default(),
             });
 
+            let some_index = index_names.as_slice().first().unwrap();
+
+            // for lookup of non-index: pick some index and do iterative search
             lookup_functions.push(quote! {
-                fn #lookup_fn(&mut self, item: &#field_type) -> &Vec<std::rc::Rc<#input_ident #ty_generics>> {
-                    todo!()
+                fn #lookup_fn(&mut self, item: &#field_type) -> Vec<std::rc::Rc<#input_ident #ty_generics>> {
+                    self.#some_index.values()
+                    .map(|vals| {
+                        vals.iter()
+                            .filter(|v| &v.#field_ident == item)
+                            .map(|rc| rc.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .flatten()
+                    .collect()
                 }
             });
         }
     }
-
-    let named = fields.style.is_struct();
-    let destructured = gen_struct_destruction(named, &input.ident, &field_idents);
 
     tokens.extend(quote! {
         #[derive(Debug)]
